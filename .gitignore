@@ -1,0 +1,36 @@
+# Configuration file containing sensitive credentials
+config.json
+
+# Network state cache
+network_state.json
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Windows Installer files
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# PowerShell session logs
+*.pslog
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+ehthumbs.db
+Desktop.ini

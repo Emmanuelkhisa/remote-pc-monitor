@@ -1,0 +1,8 @@
+{
+  "botToken": "123456789:AAEXAMPLE_TOKEN_REPLACE_THIS",
+  "chatID": "123456789",
+  "cpuThreshold": 90,
+  "memoryThreshold": 90,
+  "diskThreshold": 90,
+  "installPath": "C:\\path\\to\\Remote PC Monitor"
+}
