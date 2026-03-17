@@ -193,6 +193,7 @@ function Get-PcMonitorTaskDefinitions {
             TaskName = "PC Monitor\Bot Commands"
             Script = "bot_commands.ps1"
             Arguments = "-WindowStyle Hidden"
+            RunAsCurrentUser = $true
         }
     )
 }
@@ -237,6 +238,16 @@ function Get-PcMonitorTaskCommandArguments {
     return ($parts -join " ").Trim()
 }
 
+function Test-PcMonitorTaskRunsAsCurrentUser {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Task
+    )
+
+    return ($Task.ContainsKey("RunAsCurrentUser") -and [bool]$Task.RunAsCurrentUser)
+}
+
 function Sync-PcMonitorTaskXml {
     [CmdletBinding()]
     param(
@@ -267,13 +278,26 @@ function Sync-PcMonitorTaskXml {
 
         $commandNode = $xmlDocument.SelectSingleNode("/task:Task/task:Actions/task:Exec/task:Command", $namespaceManager)
         $argumentsNode = $xmlDocument.SelectSingleNode("/task:Task/task:Actions/task:Exec/task:Arguments", $namespaceManager)
+        $principalNode = $xmlDocument.SelectSingleNode("/task:Task/task:Principals/task:Principal", $namespaceManager)
 
-        if (-not $commandNode -or -not $argumentsNode) {
-            throw "Task XML is missing Exec nodes: $xmlPath"
+        if (-not $commandNode -or -not $argumentsNode -or -not $principalNode) {
+            throw "Task XML is missing required nodes: $xmlPath"
         }
 
         $commandNode.InnerText = "powershell.exe"
         $argumentsNode.InnerText = Get-PcMonitorTaskCommandArguments -InstallPath $InstallPath -Task $task
+
+        if (Test-PcMonitorTaskRunsAsCurrentUser -Task $task) {
+            $userIdNode = $xmlDocument.SelectSingleNode("/task:Task/task:Principals/task:Principal/task:UserId", $namespaceManager)
+            if (-not $userIdNode) {
+                $userIdNode = $xmlDocument.CreateElement("UserId", $namespaceUri)
+                [void]$principalNode.AppendChild($userIdNode)
+            }
+
+            $logonTypeNode = $xmlDocument.SelectSingleNode("/task:Task/task:Principals/task:Principal/task:LogonType", $namespaceManager)
+            $userIdNode.InnerText = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $logonTypeNode.InnerText = "InteractiveToken"
+        }
 
         $writerSettings = New-Object System.Xml.XmlWriterSettings
         $writerSettings.Encoding = [System.Text.UnicodeEncoding]::new($false, $true)
@@ -347,19 +371,28 @@ function Install-PcMonitorTasks {
 
         & schtasks /query /tn $task.TaskName 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {
+            & schtasks /end /tn $task.TaskName 2>$null | Out-Null
             & schtasks /delete /tn $task.TaskName /f | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 throw "Failed to remove existing task: $($task.TaskName)"
             }
         }
 
-        $output = & schtasks /create /tn $task.TaskName /xml $xmlPath /ru SYSTEM 2>&1
+        if (Test-PcMonitorTaskRunsAsCurrentUser -Task $task) {
+            $output = & schtasks /create /tn $task.TaskName /xml $xmlPath 2>&1
+        } else {
+            $output = & schtasks /create /tn $task.TaskName /xml $xmlPath /ru SYSTEM 2>&1
+        }
         if ($LASTEXITCODE -ne 0) {
             $detail = ($output | Out-String).Trim()
             if ([string]::IsNullOrWhiteSpace($detail)) {
                 $detail = "Unknown schtasks error"
             }
             throw "Failed to install $($task.TaskName): $detail"
+        }
+
+        if (Test-PcMonitorTaskRunsAsCurrentUser -Task $task) {
+            & schtasks /run /tn $task.TaskName 2>$null | Out-Null
         }
 
         $results += $task.TaskName
